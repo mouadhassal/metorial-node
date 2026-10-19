@@ -11,13 +11,16 @@ export let metorialOpenAI = {
   chatCompletions: createOpenAICompatibleMcpSdk({ withStrict: true }),
 
   responses: createMcpSdk(async ({ tools }) => ({
-    tools: () => tools.getTools().map(t => ({
-      type: 'function' as const,
-      name: t.id,
-      description: t.description ?? undefined,
-      parameters: t.getParametersAs('json-schema') as FunctionParameters,
-      strict: true
-    })),
+    tools: () => tools.getTools().map(t => {
+      let { parameters, strict } = t.getStrictParameters();
+      return {
+        type: 'function' as const,
+        name: t.id,
+        description: t.description ?? undefined,
+        parameters: parameters as FunctionParameters,
+        strict
+      };
+    }),
 
     callTools: async (
       calls: (ResponseFunctionToolCall | ResponseFunctionToolCallItem)[]

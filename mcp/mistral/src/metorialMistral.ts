@@ -5,15 +5,18 @@ export let metorialMistral = createMcpSdk(async ({ tools }) => {
   let toolList = tools.getTools();
 
   return {
-    tools: () => toolList.map(t => ({
-      type: 'function' as const,
-      function: {
-        name: t.id,
-        description: t.description ?? undefined,
-        parameters: t.getParametersAs('strict-json-schema') as Record<string, unknown>,
-        strict: true
-      }
-    }) satisfies Tool) as Tool[],
+    tools: () => toolList.map(t => {
+      let { parameters, strict } = t.getStrictParameters();
+      return {
+        type: 'function' as const,
+        function: {
+          name: t.id,
+          description: t.description ?? undefined,
+          parameters: parameters as Record<string, unknown>,
+          strict
+        }
+      } satisfies Tool;
+    }) as Tool[],
 
     callTools: async (calls: ToolCall[]): Promise<ToolMessage[]> =>
       Promise.all(

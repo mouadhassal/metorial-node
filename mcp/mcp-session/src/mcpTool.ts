@@ -1,5 +1,6 @@
 import { JsonSchema, jsonSchemaToOpenApi } from '@metorial/json-schema';
 import { McpUriTemplate } from './lib/mcpUri';
+import { dropNullsForOptional, inlineRefs, stripMetaKeywords, toStrictSchema } from './lib/schema';
 import { slugify } from './lib/slugify';
 import { MetorialMcpSession } from './mcpSession';
 
@@ -20,46 +21,6 @@ export type Capability =
         uriTemplate: string;
       };
     };
-
-type JsonSchemaRecord = Record<string, unknown>;
-
-let stripMetaKeywords = (schema: JsonSchema): JsonSchema => {
-  if (!schema || typeof schema !== 'object') return schema;
-  let { $schema, $id, $defs, definitions, ...rest } = schema as JsonSchemaRecord;
-  if (rest.properties) {
-    rest.properties = Object.fromEntries(
-      Object.entries(rest.properties as Record<string, JsonSchema>).map(([k, v]) => [
-        k,
-        stripMetaKeywords(v)
-      ])
-    );
-  }
-  if (rest.items) rest.items = stripMetaKeywords(rest.items as JsonSchema);
-  if (rest.allOf) rest.allOf = (rest.allOf as JsonSchema[]).map(stripMetaKeywords);
-  if (rest.anyOf) rest.anyOf = (rest.anyOf as JsonSchema[]).map(stripMetaKeywords);
-  if (rest.oneOf) rest.oneOf = (rest.oneOf as JsonSchema[]).map(stripMetaKeywords);
-  return rest as JsonSchema;
-};
-
-let enforceStrictSchema = (schema: JsonSchema): JsonSchema => {
-  if (!schema || typeof schema !== 'object') return schema;
-  let { format, ...result } = schema as JsonSchemaRecord;
-  if (result.type === 'object') {
-    result.additionalProperties = false;
-    if (result.properties) {
-      let props = result.properties as Record<string, JsonSchema>;
-      result.required = Object.keys(props);
-      result.properties = Object.fromEntries(
-        Object.entries(props).map(([k, v]) => [k, enforceStrictSchema(v)])
-      );
-    }
-  }
-  if (result.items) result.items = enforceStrictSchema(result.items as JsonSchema);
-  if (result.allOf) result.allOf = (result.allOf as JsonSchema[]).map(enforceStrictSchema);
-  if (result.anyOf) result.anyOf = (result.anyOf as JsonSchema[]).map(enforceStrictSchema);
-  if (result.oneOf) result.oneOf = (result.oneOf as JsonSchema[]).map(enforceStrictSchema);
-  return result as JsonSchema;
-};
 
 const MAX_RETRIES = 10;
 
@@ -119,7 +80,17 @@ export class MetorialMcpTool {
   }
 
   async call(args: any) {
-    return await this.action(args);
+    return await this.action(dropNullsForOptional(this.#parameters, args));
+  }
+
+  /**
+   * Parameters for providers with a strict mode. `strict` is false when strict mode cannot
+   * express this tool's schema without changing it; send the plain schema without strict then.
+   */
+  getStrictParameters(): { parameters: JsonSchema; strict: boolean } {
+    let plain = stripMetaKeywords(this.#parameters);
+    let { schema, lossless } = toStrictSchema(plain);
+    return lossless ? { parameters: schema, strict: true } : { parameters: plain, strict: false };
   }
 
   getParametersAs(
@@ -134,11 +105,11 @@ export class MetorialMcpTool {
     }
 
     if (as == 'strict-json-schema') {
-      return enforceStrictSchema(stripMetaKeywords(this.#parameters));
+      return toStrictSchema(stripMetaKeywords(this.#parameters)).schema;
     }
 
     if (as == 'openapi-3.0.0' || as == 'openapi-3.1.0') {
-      return jsonSchemaToOpenApi(this.#parameters, {
+      return jsonSchemaToOpenApi(inlineRefs(this.#parameters), {
         openApiVersion: as == 'openapi-3.0.0' ? '3.0.0' : '3.1.0',
         preserveJsonSchemaKeywords: false,
         nullHandling: 'nullable'

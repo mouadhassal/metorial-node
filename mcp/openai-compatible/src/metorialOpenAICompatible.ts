@@ -27,18 +27,21 @@ export interface MetorialOpenAiCompatibleToolResult {
 
 export let createOpenAICompatibleMcpSdk = (opts?: { withStrict?: boolean }) =>
   createMcpSdk(async ({ tools }) => ({
-    tools: () => tools.getTools().map(
-      t =>
-        ({
-          type: 'function' as const,
-          function: {
-            name: t.id,
-            description: t.description ?? undefined,
-            parameters: t.getParametersAs(opts?.withStrict ? 'strict-json-schema' : 'json-schema'),
-            ...(opts?.withStrict ? { strict: true } : {})
-          }
-        }) satisfies MetorialOpenAiCompatibleFunctionTool
-    ) as MetorialOpenAiCompatibleFunctionTool[],
+    tools: () => tools.getTools().map(t => {
+      let { parameters, strict } = opts?.withStrict
+        ? t.getStrictParameters()
+        : { parameters: t.getParametersAs('json-schema'), strict: false };
+
+      return {
+        type: 'function' as const,
+        function: {
+          name: t.id,
+          description: t.description ?? undefined,
+          parameters,
+          ...(opts?.withStrict ? { strict } : {})
+        }
+      } satisfies MetorialOpenAiCompatibleFunctionTool;
+    }) as MetorialOpenAiCompatibleFunctionTool[],
 
     callTools: async (
       calls: MetorialOpenAiCompatibleToolCall[]
